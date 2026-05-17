@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# ─── Colors ──────────────────────────────────────────────────────────────────
+# ─── Colors (global) ──────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -43,15 +43,14 @@ EOF
 
 # ─── Read arguments ───────────────────────────────────────────────────────────
 parse_args() {
-    # Need at least one argument
     if [[ $# -eq 0 ]]; then
         echo "Error: please provide a log file." >&2
         usage >&2
         exit 1
     fi
 
-    LOG_FILE="$1"   # first argument is always the log file
-    shift           # remove it so we can loop over the rest
+    LOG_FILE="$1"
+    shift
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -91,44 +90,33 @@ validate_inputs() {
     fi
 }
 
-# ─── Count results  ───────────────────────────────────────────────────────────
+# ─── Count results ────────────────────────────────────────────────────────────
 parse_log() {
-    # Count how many lines contain each keyword
-    # grep returns exit code 1 if no match found, so i add || true to be safe
     PASSED=$(grep -c  "TEST PASS:"  "$LOG_FILE" || true)
     FAILED=$(grep -c  "TEST FAIL:"  "$LOG_FILE" || true)
     SKIPPED=$(grep -c "TEST SKIP:"  "$LOG_FILE" || true)
     TOTAL=$(( PASSED + FAILED + SKIPPED ))
-    FAIL_NAMES=$(grep "TEST FAIL:" "$LOG_FILE" | awk '{print $5}' || true)
 
-    # Get the list of passing test names (used by --compare)
+    FAIL_NAMES=$(grep "TEST FAIL:" "$LOG_FILE" | awk '{print $5}' || true)
     PASS_NAMES=$(grep "TEST PASS:" "$LOG_FILE" | awk '{print $5}' || true)
 
-    # Show each test while counting (only if --verbose)
     if $VERBOSE; then
         grep "TEST PASS:\|TEST FAIL:\|TEST SKIP:" "$LOG_FILE" | while read -r line; do
             echo "[verbose] $line" >&2
         done
     fi
 
-    ALL_TIMES=$(grep -E "TEST (PASS|FAIL):" "$LOG_FILE" \
-        | awk '{print $6}' \
-        | tr -d '()' \
-        | sed 's/s$//' \
-        || true)
-
     NAME_TIMES=$(grep -E "TEST (PASS|FAIL):" "$LOG_FILE" \
         | awk '{
             name = $5
             time = $6
-            gsub(/[()s]/, "", time)   # remove ( ) and s from the time
+            gsub(/[()s]/, "", time)
             print time, name
           }' \
         || true)
 }
 
 # ─── Compute timing stats ─────────────────────────────────────────────────────
-# useing awk to find min/max/avg because bash cannot do decimal math
 compute_timing_stats() {
     if [[ -z "$NAME_TIMES" ]]; then
         MIN_TIME=""; MAX_TIME=""; AVG_TIME=""
@@ -136,13 +124,12 @@ compute_timing_stats() {
         return
     fi
 
-
     read -r MIN_TIME MIN_TEST MAX_TIME MAX_TEST AVG_TIME <<< "$(
         echo "$NAME_TIMES" | awk '
         BEGIN { min=999999; max=0; sum=0; count=0 }
         {
-            t = $1       # time value (e.g. 0.82)
-            n = $2       # test name  (e.g. rv32i-add)
+            t = $1
+            n = $2
             if (t < min) { min = t; min_name = n }
             if (t > max) { max = t; max_name = n }
             sum += t
@@ -157,7 +144,6 @@ compute_timing_stats() {
 
 # ─── Print the text report ────────────────────────────────────────────────────
 output_text() {
-    # Calculate percentages using awk (bash can't do decimals)
     local pass_pct=0 fail_pct=0 skip_pct=0
     if [[ $TOTAL -gt 0 ]]; then
         pass_pct=$(awk "BEGIN{ printf \"%.1f\", ($PASSED/$TOTAL)*100 }")
@@ -165,32 +151,45 @@ output_text() {
         skip_pct=$(awk "BEGIN{ printf \"%.1f\", ($SKIPPED/$TOTAL)*100 }")
     fi
 
-    echo -e "${CYAN}${BOLD}=== RISC-V Simulation Log Analysis ===${RESET}"
+    # ── Copy global colors into LOCAL variables ───────────────────────────────
+    local c_red="$RED"
+    local c_green="$GREEN"
+    local c_yellow="$YELLOW"
+    local c_cyan="$CYAN"
+    local c_bold="$BOLD"
+    local c_reset="$RESET"
+
+    # -t 1 checks if stdout is a terminal
+    # if output is going to a file or pipe → disable colors
+    if [[ ! -t 1 ]]; then
+        c_red=""; c_green=""; c_yellow=""
+        c_cyan=""; c_bold=""; c_reset=""
+    fi
+
+    # ── Now use c_* local variables everywhere ─────────────
+    echo -e "${c_cyan}${c_bold}=== RISC-V Simulation Log Analysis ===${c_reset}"
     echo    "Log file:      $LOG_FILE"
     echo    "Analysis date: $(date '+%Y-%m-%d %H:%M:%S')"
     echo    ""
-    echo -e "${BOLD}--- Results Summary ---${RESET}"
-    printf  "Total tests:   %d\n"               "$TOTAL"
-    printf  "${GREEN}Passed:        %d (%s%%)${RESET}\n"  "$PASSED"  "$pass_pct"
-    printf  "${RED}Failed:        %d (%s%%)${RESET}\n"    "$FAILED"  "$fail_pct"
-    printf  "${YELLOW}Skipped:       %d (%s%%)${RESET}\n" "$SKIPPED" "$skip_pct"
+    echo -e "${c_bold}--- Results Summary ---${c_reset}"
+    printf  "Total tests:   %d\n"                          "$TOTAL"
+    printf  "${c_green}Passed:        %d (%s%%)${c_reset}\n"  "$PASSED"  "$pass_pct"
+    printf  "${c_red}Failed:        %d (%s%%)${c_reset}\n"    "$FAILED"  "$fail_pct"
+    printf  "${c_yellow}Skipped:       %d (%s%%)${c_reset}\n" "$SKIPPED" "$skip_pct"
 
-    # Print failing test names (if any)
     if [[ -n "$FAIL_NAMES" ]]; then
         echo ""
-        echo -e "${BOLD}--- Failed Tests ---${RESET}"
+        echo -e "${c_bold}--- Failed Tests ---${c_reset}"
         local i=1
-        # Loop over each name 
         while IFS= read -r name; do
-            printf "${RED}  %d. %s${RESET}\n" "$i" "$name"
+            printf "${c_red}  %d. %s${c_reset}\n" "$i" "$name"
             (( i++ )) || true
         done <<< "$FAIL_NAMES"
     fi
 
-    # Print timing stats (if we got any times from the log)
     if [[ -n "$MIN_TIME" ]]; then
         echo ""
-        echo -e "${BOLD}--- Timing Statistics ---${RESET}"
+        echo -e "${c_bold}--- Timing Statistics ---${c_reset}"
         printf "Min time:      %ss  (%s)\n" "$MIN_TIME" "$MIN_TEST"
         printf "Max time:      %ss  (%s)\n" "$MAX_TIME" "$MAX_TEST"
         printf "Avg time:      %ss\n"        "$AVG_TIME"
@@ -198,9 +197,9 @@ output_text() {
 
     echo ""
     if [[ $FAILED -eq 0 ]]; then
-        echo -e "${GREEN}${BOLD}--- Verdict: PASS ---${RESET}"
+        echo -e "${c_green}${c_bold}--- Verdict: PASS ---${c_reset}"
     else
-        echo -e "${RED}${BOLD}--- Verdict: FAIL ---${RESET}"
+        echo -e "${c_red}${c_bold}--- Verdict: FAIL ---${c_reset}"
     fi
 }
 
@@ -228,35 +227,30 @@ output_csv() {
 
     echo ""
     echo "result,test_name"
-    # Print each passing test name with PASS label
     while IFS= read -r name; do
         [[ -n "$name" ]] && echo "PASS,$name"
     done <<< "$PASS_NAMES"
-    # Print each failing test name with FAIL label
     while IFS= read -r name; do
         [[ -n "$name" ]] && echo "FAIL,$name"
     done <<< "$FAIL_NAMES"
 }
 
+# ─── Compare two logs ─────────────────────────────────────────────────────────
 compare_logs() {
     echo -e "${BOLD}=== Regression Comparison ===${RESET}"
     echo "Baseline : $COMPARE_FILE"
     echo "Current  : $LOG_FILE"
     echo ""
 
-    # Get all passing test names from the OLD (baseline) log
     local old_passes
     old_passes=$(grep "TEST PASS:" "$COMPARE_FILE" | awk '{print $5}' || true)
 
-    # Get all failing test names from the OLD log
     local old_fails
     old_fails=$(grep "TEST FAIL:" "$COMPARE_FILE" | awk '{print $5}' || true)
 
-    # Regression = passed in old log, but fails in current log
     local found_regression=false
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
-        # Checking if this failing test name appears in the old passing list
         if echo "$old_passes" | grep -qx "$name"; then
             if ! $found_regression; then
                 echo -e "${RED}Regressions (passed before, fail now):${RESET}"
@@ -268,11 +262,9 @@ compare_logs() {
 
     $found_regression || echo -e "${GREEN}No regressions detected.${RESET}"
 
-    # Improvement = failed in old log, but passes in current log
     local found_improvement=false
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
-        # Checking if this passing test name appears in the old failing list
         if echo "$old_fails" | grep -qx "$name"; then
             if ! $found_improvement; then
                 echo ""
@@ -284,39 +276,39 @@ compare_logs() {
     done <<< "$PASS_NAMES"
 }
 
-
-# ─── Main  ────────────────────────────────────────────────────────────────
+# ─── Main ─────────────────────────────────────────────────────────────────────
 main() {
     parse_args "$@"
     validate_inputs
     parse_log
     compute_timing_stats
 
-    # Build the report string
-    local report
-    if [[ "$FORMAT" == "csv" ]]; then
-        report=$(output_csv)
-    else
-        report=$(output_text)
-    fi
-
-     # Append comparison section if --compare was used
-    if [[ -n "$COMPARE_FILE" && "$FORMAT" == "text" ]]; then
-        report+=$'\n'"$(compare_logs)"
-    fi
-
-
-    # for Printing to screen OR save to file
     if [[ -n "$OUTPUT" ]]; then
+        # saving to file → redirect whole block, -t 1 sees "not a terminal" → no colors
         mkdir -p "$(dirname "$OUTPUT")"
-        # Using printf to avoid echo interpreting escape codes in the file
-        printf "%b\n" "$report" > "$OUTPUT"
+        {
+            if [[ "$FORMAT" == "csv" ]]; then
+                output_csv
+            else
+                output_text
+            fi
+            if [[ -n "$COMPARE_FILE" && "$FORMAT" == "text" ]]; then
+                compare_logs
+            fi
+        } > "$OUTPUT"
         echo "Report saved to: $OUTPUT" >&2
     else
-        printf "%b\n" "$report"
+        # printing to terminal → functions run directly → -t 1 sees real terminal → colors ON
+        if [[ "$FORMAT" == "csv" ]]; then
+            output_csv
+        else
+            output_text
+        fi
+        if [[ -n "$COMPARE_FILE" && "$FORMAT" == "text" ]]; then
+            compare_logs
+        fi
     fi
 
-    # Exit with code 1 if any tests failed
     [[ $FAILED -gt 0 ]] && exit 1
     exit 0
 }

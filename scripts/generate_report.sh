@@ -35,7 +35,7 @@ fi
     for log in "${LOG_FILES[@]}"; do
         echo "──────────────────────────────────────────"
         # analyze.sh exits 1 on failures; capture output without aborting this script
-        bash "$ANALYZE" "$log" 2>/dev/null || true
+        bash "$ANALYZE" "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' || true 
         echo ""
     done
 } > "$TEXT_REPORT"

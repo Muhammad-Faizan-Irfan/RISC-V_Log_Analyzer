@@ -27,9 +27,9 @@ test: $(OUTPUT_DIR)
 	@PASS=0; FAIL=0; \
 	for log in $(LOG_FILES); do \
 	    name=$$(basename "$$log" .log); \
-	    out="$(OUTPUT_DIR)/$$name.txt"; \
-	    bash $(ANALYZE) "$$log" --output "$$out" 2>/dev/null || true; \
-	    if [[ -f "$$out" ]]; then \
+	out="$(OUTPUT_DIR)/$$name.txt"; \
+	bash $(ANALYZE) "$$log" --output "$$out" 2>/dev/null || true; \
+	if [[ -f "$$out" ]]; then \
 	        echo "  ✓  $$log  →  $$out"; \
 	        PASS=$$((PASS+1)); \
 	    else \
