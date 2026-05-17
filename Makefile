@@ -1,5 +1,4 @@
 # Makefile — riscv-log-analyzer
-# Automates analysis, testing, report generation, and cleanup.
 
 SHELL       := /bin/bash
 ANALYZE     := scripts/analyze.sh
@@ -46,4 +45,36 @@ test: $(OUTPUT_DIR)
 report: $(OUTPUT_DIR)
 	@echo "=== Generating report ==="
 	@bash $(GEN_REPORT)
+	
+
+# Remove all generated output
+.PHONY: clean
+clean:
+	@echo "Cleaning output directory..."
+	@rm -rf $(OUTPUT_DIR)
+	@echo "Done."
+
+# Print all available targets with descriptions
+.PHONY: help
+help:
+	@echo ""
+	@echo "riscv-log-analyzer — Makefile targets"
+	@echo "======================================"
+	@echo "  make all      Analyze every .log file in test_data/ (stdout)"
+	@echo "  make test     Run analyzer on each test file; save to output/"
+	@echo "  make report   Generate combined text + HTML report in output/"
+	@echo "  make clean    Remove all generated files in output/"
+	@echo "  make setup    Check that required tools are installed"
+	@echo "  make help     Show this message"
+	@echo ""
+
+# Verify that required shell tools are available
+.PHONY: setup
+setup:
+	@bash $(SETUP)
+
+# Ensure the output directory exists
+$(OUTPUT_DIR):
+	@mkdir -p $(OUTPUT_DIR)
+
 
