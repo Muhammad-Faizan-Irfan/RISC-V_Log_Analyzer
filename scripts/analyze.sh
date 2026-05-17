@@ -238,4 +238,34 @@ output_csv() {
     done <<< "$FAIL_NAMES"
 }
 
+# ─── Main — ties everything together ──────────────────────────────────────────
+main() {
+    parse_args "$@"
+    validate_inputs
+    parse_log
+    compute_timing_stats
 
+    # Build the report string
+    local report
+    if [[ "$FORMAT" == "csv" ]]; then
+        report=$(output_csv)
+    else
+        report=$(output_text)
+    fi
+
+    # Print to screen OR save to file
+    if [[ -n "$OUTPUT" ]]; then
+        mkdir -p "$(dirname "$OUTPUT")"
+        # Use printf to avoid echo interpreting escape codes in the file
+        printf "%b\n" "$report" > "$OUTPUT"
+        echo "Report saved to: $OUTPUT" >&2
+    else
+        printf "%b\n" "$report"
+    fi
+
+    # Exit with code 1 if any tests failed (useful in CI/automation)
+    [[ $FAILED -gt 0 ]] && exit 1
+    exit 0
+}
+
+main "$@"
