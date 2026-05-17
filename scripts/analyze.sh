@@ -94,7 +94,7 @@ validate_inputs() {
 # ─── Count results  ───────────────────────────────────────────────────────────
 parse_log() {
     # Count how many lines contain each keyword
-    # grep returns exit code 1 if no match found, so we add || true to be safe
+    # grep returns exit code 1 if no match found, so i add || true to be safe
     PASSED=$(grep -c  "TEST PASS:"  "$LOG_FILE" || true)
     FAILED=$(grep -c  "TEST FAIL:"  "$LOG_FILE" || true)
     SKIPPED=$(grep -c "TEST SKIP:"  "$LOG_FILE" || true)
@@ -128,7 +128,7 @@ parse_log() {
 }
 
 # ─── Compute timing stats ─────────────────────────────────────────────────────
-# We use awk to find min/max/avg because bash cannot do decimal math
+# useing awk to find min/max/avg because bash cannot do decimal math
 compute_timing_stats() {
     if [[ -z "$NAME_TIMES" ]]; then
         MIN_TIME=""; MAX_TIME=""; AVG_TIME=""
@@ -180,7 +180,7 @@ output_text() {
         echo ""
         echo -e "${BOLD}--- Failed Tests ---${RESET}"
         local i=1
-        # Loop over each name (one per line thanks to grep output)
+        # Loop over each name 
         while IFS= read -r name; do
             printf "${RED}  %d. %s${RESET}\n" "$i" "$name"
             (( i++ )) || true
@@ -238,7 +238,54 @@ output_csv() {
     done <<< "$FAIL_NAMES"
 }
 
-# ─── Main — ties everything together ──────────────────────────────────────────
+compare_logs() {
+    echo -e "${BOLD}=== Regression Comparison ===${RESET}"
+    echo "Baseline : $COMPARE_FILE"
+    echo "Current  : $LOG_FILE"
+    echo ""
+
+    # Get all passing test names from the OLD (baseline) log
+    local old_passes
+    old_passes=$(grep "TEST PASS:" "$COMPARE_FILE" | awk '{print $5}' || true)
+
+    # Get all failing test names from the OLD log
+    local old_fails
+    old_fails=$(grep "TEST FAIL:" "$COMPARE_FILE" | awk '{print $5}' || true)
+
+    # Regression = passed in old log, but fails in current log
+    local found_regression=false
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        # Checking if this failing test name appears in the old passing list
+        if echo "$old_passes" | grep -qx "$name"; then
+            if ! $found_regression; then
+                echo -e "${RED}Regressions (passed before, fail now):${RESET}"
+                found_regression=true
+            fi
+            echo -e "  ${RED}✗ $name${RESET}"
+        fi
+    done <<< "$FAIL_NAMES"
+
+    $found_regression || echo -e "${GREEN}No regressions detected.${RESET}"
+
+    # Improvement = failed in old log, but passes in current log
+    local found_improvement=false
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        # Checking if this passing test name appears in the old failing list
+        if echo "$old_fails" | grep -qx "$name"; then
+            if ! $found_improvement; then
+                echo ""
+                echo -e "${GREEN}Improvements (failed before, pass now):${RESET}"
+                found_improvement=true
+            fi
+            echo -e "  ${GREEN}✓ $name${RESET}"
+        fi
+    done <<< "$PASS_NAMES"
+}
+
+
+# ─── Main  ────────────────────────────────────────────────────────────────
 main() {
     parse_args "$@"
     validate_inputs
@@ -253,17 +300,23 @@ main() {
         report=$(output_text)
     fi
 
-    # Print to screen OR save to file
+     # Append comparison section if --compare was used
+    if [[ -n "$COMPARE_FILE" && "$FORMAT" == "text" ]]; then
+        report+=$'\n'"$(compare_logs)"
+    fi
+
+
+    # for Printing to screen OR save to file
     if [[ -n "$OUTPUT" ]]; then
         mkdir -p "$(dirname "$OUTPUT")"
-        # Use printf to avoid echo interpreting escape codes in the file
+        # Using printf to avoid echo interpreting escape codes in the file
         printf "%b\n" "$report" > "$OUTPUT"
         echo "Report saved to: $OUTPUT" >&2
     else
         printf "%b\n" "$report"
     fi
 
-    # Exit with code 1 if any tests failed (useful in CI/automation)
+    # Exit with code 1 if any tests failed
     [[ $FAILED -gt 0 ]] && exit 1
     exit 0
 }
