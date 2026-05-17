@@ -1,0 +1,25 @@
+# ─── Generated output ────────────────────────────────────────────────────────
+output/
+
+# ─── OS files ────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Editor / IDE files ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# ─── Shell session artefacts ─────────────────────────────────────────────────
+*.log.bak
+*.tmp
