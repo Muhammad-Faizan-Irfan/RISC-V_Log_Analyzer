@@ -274,6 +274,7 @@ compare_logs() {
             echo -e "  ${GREEN}✓ $name${RESET}"
         fi
     done <<< "$PASS_NAMES"
+     $found_improvement || echo -e "${YELLOW}No improvement detected.${RESET}"
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────────────

@@ -1,82 +1,72 @@
 #!/usr/bin/env bash
 # generate_report.sh — Runs analyze.sh over all test_data logs and produces
-# a combined text summary AND an HTML report in output
+# a text summary and an HTML report in output/
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ANALYZE="$SCRIPT_DIR/analyze.sh"
 TEST_DATA="$PROJECT_ROOT/test_data"
 OUTPUT_DIR="$PROJECT_ROOT/output"
-
-mkdir -p "$OUTPUT_DIR"
-
 HTML_REPORT="$OUTPUT_DIR/report.html"
 TEXT_REPORT="$OUTPUT_DIR/summary.txt"
 
-# ─── Collect results from every .log file ────────────────────────────────────
-declare -a LOG_FILES=()
-while IFS= read -r -d '' f; do
-    LOG_FILES+=("$f")
-done < <(find "$TEST_DATA" -name "*.log" -print0 | sort -z)
+mkdir -p "$OUTPUT_DIR"
 
-if [[ ${#LOG_FILES[@]} -eq 0 ]]; then
-    echo "No .log files found in $TEST_DATA" >&2
+# Check for log files
+LOG_FILES=$(find "$TEST_DATA" -name "*.log" | sort)
+if [ -z "$LOG_FILES" ]; then
+    echo "No .log files found in $TEST_DATA"
     exit 1
 fi
 
-# ─── Text summary ─────────────────────────────────────────────────────────────
-{
-    echo "=== RISC-V Log Analyzer — Batch Summary ==="
-    echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo ""
+# ── Text summary ──────────────────────────────────────────────────────────────
 
-    for log in "${LOG_FILES[@]}"; do
-        echo "──────────────────────────────────────────"
-        # analyze.sh exits 1 on failures; capture output without aborting this script
-        bash "$ANALYZE" "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' || true 
-        echo ""
-    done
-} > "$TEXT_REPORT"
+echo "=== RISC-V Log Analyzer — Batch Summary ===" > "$TEXT_REPORT"
+echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')"    >> "$TEXT_REPORT"
+echo ""                                             >> "$TEXT_REPORT"
+
+for log in $LOG_FILES; do
+    echo "──────────────────────────────────────────" >> "$TEXT_REPORT"
+    bash "$ANALYZE" "$log" 2>/dev/null               >> "$TEXT_REPORT" || true
+    echo ""                                          >> "$TEXT_REPORT"
+done
 
 echo "Text summary written to: $TEXT_REPORT"
 
-# ─── HTML report ──────────────────────────────────────────────────────────────
-# Parse CSV output for each log to build a structured table.
+# ── HTML report ───────────────────────────────────────────────────────────────
 
-cat > "$HTML_REPORT" <<'HTMLEOF'
+cat > "$HTML_REPORT" << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>RISC-V Simulation Log Report</title>
 <style>
-  body { font-family: monospace; background: #1e1e2e; color: #cdd6f4; margin: 2rem; }
-  h1   { color: #89b4fa; }
-  h2   { color: #cba6f7; margin-top: 2rem; }
-  table{ border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th   { background: #313244; color: #89dceb; padding: .5rem 1rem; text-align: left; }
-  td   { padding: .4rem 1rem; border-bottom: 1px solid #45475a; }
+  body   { font-family: monospace; background: #1e1e2e; color: #cdd6f4; margin: 2rem; }
+  h1     { color: #89b4fa; }
+  h2     { color: #cba6f7; margin-top: 2rem; }
+  table  { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th     { background: #313244; color: #89dceb; padding: .5rem 1rem; text-align: left; }
+  td     { padding: .4rem 1rem; border-bottom: 1px solid #45475a; }
   tr:hover td { background: #313244; }
-  .pass{ color: #a6e3a1; font-weight: bold; }
-  .fail{ color: #f38ba8; font-weight: bold; }
-  .skip{ color: #f9e2af; }
-  .verdict-pass { color: #a6e3a1; font-size: 1.2em; }
-  .verdict-fail { color: #f38ba8; font-size: 1.2em; }
+  .pass  { color: #a6e3a1; font-weight: bold; }
+  .fail  { color: #f38ba8; font-weight: bold; }
+  .skip  { color: #f9e2af; }
   footer { margin-top: 3rem; font-size: .8em; color: #6c7086; }
 </style>
 </head>
 <body>
-<h1>🖥 RISC-V Simulation Log Report</h1>
-HTMLEOF
+<h1>RISC-V Simulation Log Report</h1>
+EOF
 
-for log in "${LOG_FILES[@]}"; do
-    # Get CSV output
+for log in $LOG_FILES; do
+    # Get CSV data from analyze.sh
     csv=$(bash "$ANALYZE" "$log" --format csv 2>/dev/null || true)
 
-    # extract a value from the CSV
-    get_val() { echo "$csv" | awk -F',' -v k="$1" '$1==k{print $2}' | head -1; }
+    # Helper to pull a value by key from the CSV
+    get_val() { echo "$csv" | awk -F',' -v k="$1" '$1==k { print $2; exit }'; }
 
     total=$(get_val total)
     passed=$(get_val passed)
@@ -89,15 +79,16 @@ for log in "${LOG_FILES[@]}"; do
     min_test=$(get_val min_time_test)
     max_test=$(get_val max_time_test)
 
-    verdict_class="verdict-pass"
-    verdict_label="✓ PASS"
-    [[ "${failed:-0}" -gt 0 ]] && { verdict_class="verdict-fail"; verdict_label="✗ FAIL"; }
+    # Pick a pass/fail label
+    verdict="PASS"
+    if [ "${failed:-0}" -gt 0 ]; then
+        verdict="FAIL"
+    fi
 
     logname=$(basename "$log")
 
-    cat >> "$HTML_REPORT" <<SECTION
-<h2>📄 $logname</h2>
-<p class="$verdict_class">$verdict_label</p>
+    cat >> "$HTML_REPORT" << SECTION
+<h2>$logname — $verdict</h2>
 <table>
   <tr><th>Metric</th><th>Value</th></tr>
   <tr><td>Total tests</td><td>$total</td></tr>
@@ -106,29 +97,31 @@ for log in "${LOG_FILES[@]}"; do
   <tr><td>Skipped</td><td class="skip">$skipped</td></tr>
 SECTION
 
-    if [[ -n "$min_t" ]]; then
-        cat >> "$HTML_REPORT" <<TIMING
-  <tr><td>Min time</td><td>${min_t}s &nbsp;($min_test)</td></tr>
-  <tr><td>Max time</td><td>${max_t}s &nbsp;($max_test)</td></tr>
+    # Add timing rows only when data is available
+    if [ -n "$min_t" ]; then
+        cat >> "$HTML_REPORT" << TIMING
+  <tr><td>Min time</td><td>${min_t}s ($min_test)</td></tr>
+  <tr><td>Max time</td><td>${max_t}s ($max_test)</td></tr>
   <tr><td>Avg time</td><td>${avg_t}s</td></tr>
 TIMING
     fi
 
-    # Per-test rows
+    # Per-test result rows
     echo "  <tr><th colspan='2'>Per-test results</th></tr>" >> "$HTML_REPORT"
+
+    echo "$csv" | awk -F',' '$1=="PASS" || $1=="FAIL" || $1=="SKIP"' | \
     while IFS=',' read -r result name time_s; do
-        [[ "$result" == "result" || -z "$result" ]] && continue
-        css_class=$(echo "$result" | tr '[:upper:]' '[:lower:]')
-        echo "  <tr><td class='$css_class'>$result</td><td>$name &nbsp;<em>${time_s}s</em></td></tr>" >> "$HTML_REPORT"
-    done < <(echo "$csv" | awk -F',' 'NR>1 && ($1=="PASS"||$1=="FAIL"||$1=="SKIP"){print}')
+        css=$(echo "$result" | tr '[:upper:]' '[:lower:]')
+        echo "  <tr><td class='$css'>$result</td><td>$name (${time_s}s)</td></tr>"
+    done >> "$HTML_REPORT"
 
     echo "</table>" >> "$HTML_REPORT"
 done
 
-cat >> "$HTML_REPORT" <<'HTMLEOF'
+cat >> "$HTML_REPORT" << 'EOF'
 <footer>Generated by riscv-log-analyzer · generate_report.sh</footer>
 </body>
 </html>
-HTMLEOF
+EOF
 
-echo "HTML report written to:  $HTML_REPORT"
+echo "HTML report written to: $HTML_REPORT"
